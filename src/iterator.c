@@ -4,87 +4,102 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define BASE_IT_COLLECTION_SIZE 8
+#define BASE_COLLECTION_SIZE 8
 
+/**
+ * Represent iterator which is currently in use. This is used for method chaining.
+*/
 static iterator* current_it = NULL;
 
-static iterator* it_collection;
-static size_t it_count = 0;
-static size_t it_capacity = BASE_IT_COLLECTION_SIZE;
+/**
+ * Iterators are stored in segments of size BASE_COLLECTION_SIZE, so we can avoid invalidating pointers via
+ * realloc.
+*/
+static iterator** it_collection;
+static size_t it_segment = 0;
+static size_t it_index = 0;
+static size_t it_segments_capacity = BASE_COLLECTION_SIZE;
 
-bool it_init() {
-    it_collection = (iterator*)malloc(sizeof(iterator) * it_capacity);
-    return it_collection == NULL ? false : true;
+void it_init() {
+    it_collection = (iterator**)malloc(sizeof(iterator*) * it_segments_capacity);
+    it_collection[it_segment] = (iterator*)malloc(sizeof(iterator) * BASE_COLLECTION_SIZE);
 }
 
 void it_free() {
-    for (int i = 0; i < it_count; ++i) {
-        if (it_collection[i].data != NULL) {
-            free(it_collection[i].data);
+    for (size_t i = 0; i < it_segment; ++i) {
+        for(size_t j = 0; j < BASE_COLLECTION_SIZE; ++j) {
+            if (it_collection[i][j]._data != NULL) {
+                free(it_collection[i][j]._data);
+            }
+            if (it_collection[i][j]._current_element != NULL) {
+                free(it_collection[i][j]._current_element);
+            }
         }
-        if (it_collection[i].current_element != NULL) {
-            free(it_collection[i].current_element);
-        }
+        free(it_collection[i]);
     }
     free(it_collection);
 }
 
 static bool it_move_next(iterator* self) {
-    if (self->current_element != NULL) {
-        free(self->current_element);
-        self->current_element = NULL;
+    // check if last element was cached and delete it if it was
+    if (self->_current_element != NULL) {
+        free(self->_current_element);
+        self->_current_element = NULL;
     }
-    bool result = self->parent->move_next(self->parent);
-    self->index = self->parent->index;
+    // call move next on parent
+    bool result = self->_parent->move_next(self->_parent);
+    self->index = self->_parent->index;
 
     return result;
 }
 
 static void* it_get_current(iterator* self) {
-    if (self->current_element != NULL) {
-        return self->current_element;
+    // check if element is cached
+    if (self->_current_element != NULL) {
+        return self->_current_element;
     }
 
-    void* input = self->parent->get_current(self->parent);
-    void* output = malloc(self->element_size);
-    self->map_func(input, output);
+    // get input and output and call mapping function on them
+    void* input = self->_parent->get_current(self->_parent);
+    void* output = malloc(self->_element_size);
+    self->_map_func(input, output);
 
-    self->current_element = output;
+    // store computed element into cache
+    self->_current_element = output;
     return output;
 }
 
 static iterator* it_map(void (*func)(void*, void*), size_t element_size) {
-    iterator* it = it_alloc();
+    iterator* it = _it_alloc();
 
-    it->collection_size = get_current_it()->collection_size;
-    it->element_size = element_size;
-    it->index = get_current_it()->index;
-    it->map_func = func;
-    it->parent = get_current_it();
-    it->current_element = NULL;
+    it->_collection_size = _get_current_it()->_collection_size;
+    it->_element_size = element_size;
+    it->index = _get_current_it()->index;
+    it->_map_func = func;
+    it->_parent = _get_current_it();
 
     it->move_next = it_move_next;
     it->get_current = it_get_current;
 
-    set_current_it(it);
+    _set_current_it(it);
     return it;
 }
 
 static size_t it_collect(void*** arr) {
-    iterator* current = get_current_it();
+    iterator* current = _get_current_it();
     size_t element_count = 0;
-    size_t capacity = BASE_IT_COLLECTION_SIZE;
+    size_t capacity = BASE_COLLECTION_SIZE;
 
     *arr = malloc(sizeof(void*) * capacity);
     while (current->move_next(current)) {
         if (element_count >= capacity) {
             capacity *= 2;
-            *arr = realloc(*arr, capacity);
+            *arr = realloc(*arr, sizeof(void*) * capacity);
         }
 
         void* current_element = current->get_current(current);
-        void* current_copy = malloc(current->element_size);
-        memcpy(current_copy, current_element, current->element_size);
+        void* current_copy = malloc(current->_element_size);
+        memcpy(current_copy, current_element, current->_element_size);
         (*arr)[element_count++] = current_copy;
     }
 
@@ -92,7 +107,7 @@ static size_t it_collect(void*** arr) {
 }
 
 static int32_t it_sum() {
-    iterator* current = get_current_it();
+    iterator* current = _get_current_it();
     int32_t sum = 0;
 
     while (current->move_next(current)) {
@@ -103,42 +118,48 @@ static int32_t it_sum() {
 }
 
 static size_t it_sort(void*** arr, int (*comp)(const void*, const void*)) {
-    iterator* current = get_current_it();
+    iterator* current = _get_current_it();
     size_t element_count = current->collect(arr);
 
-    qsort(*arr, element_count, current->element_size, comp);
+    qsort(*arr, element_count, sizeof(void*), comp);
 
     return element_count;
 }
 
-iterator* it_alloc() {
-    if (it_count >= it_capacity) {
-        it_capacity *= 2;
-        it_collection = (iterator*)realloc(
-            it_collection,
-            sizeof(iterator) * it_capacity
-        );
+iterator* _it_alloc() {
+    // check for segment overflow
+    if (it_index >= BASE_COLLECTION_SIZE) {
+        // allocate new segment
+        it_index = 0;
+        it_segment++;
+        // array with segments is full so we will expand it
+        if (it_segment >= it_segments_capacity) {
+            it_segments_capacity += BASE_COLLECTION_SIZE;
+            it_collection = (iterator**)realloc(it_collection, sizeof(iterator*) * it_segments_capacity);
+        }
+        it_collection[it_segment] = (iterator*)malloc(sizeof(iterator) * BASE_COLLECTION_SIZE);
     }
 
-    memset(it_collection + it_count, 0, sizeof(iterator));
-    it_collection[it_count].first = true;
-    it_collection[it_count].map = it_map;
-    it_collection[it_count].collect = it_collect;
-    it_collection[it_count].sum = it_sum;
-    it_collection[it_count].sort = it_sort;
+    // init new iterator
+    memset(&it_collection[it_segment][it_index], 0, sizeof(iterator));
+    it_collection[it_segment][it_index]._first = true;
+    it_collection[it_segment][it_index].map = it_map;
+    it_collection[it_segment][it_index].collect = it_collect;
+    it_collection[it_segment][it_index].sum = it_sum;
+    it_collection[it_segment][it_index].sort = it_sort;
 
-    return &it_collection[it_count++];
+    return &it_collection[it_segment][it_index++];
 }
 
-void set_current_it(iterator* it) {
+void _set_current_it(iterator* it) {
     current_it = it;
 }
 
-iterator* get_current_it() {
+iterator* _get_current_it() {
     return current_it;
 }
 
 iterator* it_begin(iterator* it) {
-    set_current_it(it);
+    _set_current_it(it);
     return it;
 }
