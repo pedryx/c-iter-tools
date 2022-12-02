@@ -3,7 +3,6 @@
 #include <stdio.h>
 
 static bool arr_move_next(iterator* self) {
-    printf("move next arr\n");
     if (self->index + 1 >= self->collection_size) {
         return false;
     }

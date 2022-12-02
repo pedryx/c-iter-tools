@@ -30,7 +30,6 @@ void it_free() {
 }
 
 static bool it_move_next(iterator* self) {
-    printf("move next it\n");
     if (self->current_element != NULL) {
         free(self->current_element);
         self->current_element = NULL;
@@ -121,13 +120,12 @@ iterator* it_alloc() {
         );
     }
 
+    memset(it_collection + it_count, 0, sizeof(iterator));
     it_collection[it_count].first = true;
     it_collection[it_count].map = it_map;
     it_collection[it_count].collect = it_collect;
     it_collection[it_count].sum = it_sum;
     it_collection[it_count].sort = it_sort;
-    it_collection[it_count].data = NULL;
-    it_collection[it_count].current_element = NULL;
 
     return &it_collection[it_count++];
 }

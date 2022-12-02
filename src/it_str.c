@@ -11,7 +11,6 @@ struct str_data {
 typedef struct str_data str_data;
 
 static bool str_move_next(iterator* self) {
-    printf("move next str\n");
     if (self->current_element != NULL) {
         free(self->current_element);
         self->current_element = NULL;

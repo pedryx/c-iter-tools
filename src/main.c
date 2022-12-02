@@ -23,16 +23,13 @@ int main(void) {
         ->map(map_parse_iters, sizeof(iterator*));
 
     while (it->move_next(it)) {
+        printf("next iter:\n");
         iterator** current = it->get_current(it);
-        printf("new iter:\n");
         while ((*current)->move_next(*current)) {
-            printf("next\n");
             int* num = (*current)->get_current(*current);
             printf("%d\n", *num);
         }
-        printf("inner end\n");
     }
-    printf("outer end\n");
 
     free(file);
     it_free();
